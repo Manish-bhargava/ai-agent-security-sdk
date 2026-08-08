@@ -1,3 +1,7 @@
 export { RuntimeGuard } from "./core/RuntimeGuard";
-export type { RuntimeGuardConfig } from "./core/config";
-export type { HttpEvent } from "./core/types";
+
+export type {
+  RuntimeGuardConfig,
+  HttpEvent,
+  RuntimeEvent
+} from "./core/types";
