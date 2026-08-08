@@ -8,11 +8,30 @@ export interface HttpEvent {
   headers: Record<string, unknown>;
 }
 
+export type RuntimeEvent = HttpEvent;
+
 export interface RuntimeGuardConfig {
   endpoint?: string;
   apiKey?: string;
-  batchSize?: number;
-  flushInterval?: number;
-}
 
-export type RuntimeEvent = HttpEvent;
+  /** Number of events before automatic flush. */
+  batchSize?: number;
+
+  /** Maximum time between flushes in milliseconds. */
+  flushInterval?: number;
+
+  /** Maximum number of events kept in memory. */
+  maxBufferSize?: number;
+
+  /** HTTP request timeout in milliseconds. */
+  requestTimeout?: number;
+
+  /** Number of retries after a failed transport request. */
+  maxRetries?: number;
+
+  /** Delay between retries in milliseconds. */
+  retryDelay?: number;
+
+  /** Disable SDK console errors. */
+  silent?: boolean;
+}

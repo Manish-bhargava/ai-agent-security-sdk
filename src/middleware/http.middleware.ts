@@ -1,38 +1,45 @@
-import { Request, Response, NextFunction } from "express";
+import {
+  Request,
+  Response,
+  NextFunction
+} from "express";
+
+import { EventBuffer } from "../pipeline/event-buffer";
 import { collectHttpEvent } from "../collectors/http.collector";
 import { sanitizeHeaders } from "../security/sanitizer";
-import { EventBuffer } from "../pipeline/event-buffer";
 
 export function createHttpMiddleware(
   buffer: EventBuffer,
   onEventAdded: () => void
 ) {
-  return function httpMiddleware(
+  return function runtimeGuardMiddleware(
     req: Request,
     res: Response,
     next: NextFunction
   ) {
     const startTime = Date.now();
 
-    res.on("finish", () => {
-      const event = collectHttpEvent(
-        req,
-        res,
-        startTime
-      );
+    res.once("finish", () => {
+      try {
+        const event = collectHttpEvent(
+          req,
+          res,
+          startTime
+        );
 
-      event.headers = sanitizeHeaders(
-        event.headers
-      );
+        event.headers = sanitizeHeaders(
+          event.headers
+        );
 
-      buffer.add(event);
+        buffer.add(event);
 
-      console.log(
-        "[RuntimeGuard] Buffer size:",
-        buffer.size()
-      );
-
-      onEventAdded();
+        onEventAdded();
+      } catch (error) {
+        console.error(
+          "[RuntimeGuard] Middleware error:",
+          error
+        );
+      }
     });
 
     next();

@@ -3,7 +3,8 @@ const SENSITIVE_HEADERS = new Set([
   "cookie",
   "set-cookie",
   "x-api-key",
-  "api-key"
+  "api-key",
+  "proxy-authorization"
 ]);
 
 export function sanitizeHeaders(

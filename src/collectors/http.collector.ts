@@ -13,6 +13,6 @@ export function collectHttpEvent(
     statusCode: res.statusCode,
     latency: Date.now() - startTime,
     timestamp: new Date().toISOString(),
-    headers: req.headers
+    headers: { ...req.headers }
   };
 }
