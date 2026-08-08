@@ -1,25 +1,37 @@
 import express from "express";
-import { RuntimeGuard } from "../../src/index.js";
+import { RuntimeGuard } from "../../src";
 
 const app = express();
 
 const guard = new RuntimeGuard({
+  endpoint: "http://localhost:4000/events",
   batchSize: 3,
   flushInterval: 5000,
-  maxBufferSize: 1000
 });
 
 app.use(guard.middleware());
 
 app.get("/users", (_req, res) => {
+  console.log("Fetching users");
+
   res.json({
-    users: ["Manish", "Rahul"]
+    users: ["Manish", "Rahul"],
   });
 });
 
 app.get("/products", (_req, res) => {
+  console.info("Fetching products");
+
   res.json({
-    products: ["Laptop", "Phone"]
+    products: ["Laptop", "Phone"],
+  });
+});
+
+app.get("/error", (_req, res) => {
+  console.error("Something went wrong");
+
+  res.status(500).json({
+    error: "Internal server error",
   });
 });
 
@@ -27,13 +39,12 @@ const server = app.listen(3000, () => {
   console.log("Server running on port 3000");
 });
 
-const shutdown = async () => {
+process.on("SIGINT", async () => {
+  console.log("Shutting down...");
+
+  server.close();
+
   await guard.shutdown();
 
-  server.close(() => {
-    process.exit(0);
-  });
-};
-
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+  process.exit(0);
+});

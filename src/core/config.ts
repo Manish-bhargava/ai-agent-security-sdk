@@ -1,5 +1,8 @@
 export interface RuntimeGuardConfig {
+  endpoint: string;
   apiKey?: string;
-  serviceName?: string;
-  environment?: string;
+
+  bufferSize?: number;
+  batchSize?: number;
+  flushInterval?: number;
 }

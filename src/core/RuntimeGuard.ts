@@ -1,163 +1,101 @@
-import {
-  RuntimeGuardConfig
-} from "./types";
-
+import { RuntimeGuardConfig } from "./config";
+import { RuntimeEvent } from "./types";
 import { EventBuffer } from "../pipeline/event-buffer";
-import { Batcher } from "../pipeline/batcher";
 import { HttpTransport } from "../transport/http.transport";
-import { createHttpMiddleware } from "../middleware/http.middleware";
-
+import { sanitizeHeaders } from "../security/sanitizer";
+import { installConsoleHook } from "../collectors/console.hook";
+import { httpMiddleware } from "../middleware/http.middleware";
 export class RuntimeGuard {
   private readonly buffer: EventBuffer;
-  private readonly batcher: Batcher;
   private readonly transport: HttpTransport;
+
+  private flushTimer?: NodeJS.Timeout;
+  private stopConsoleHook?: () => void;
 
   private readonly batchSize: number;
   private readonly flushInterval: number;
-  private readonly silent: boolean;
 
-  private flushTimer?: NodeJS.Timeout;
-  private flushing = false;
-  private shutdownStarted = false;
-
-  constructor(
-    config: RuntimeGuardConfig = {}
-  ) {
-    this.batchSize = config.batchSize ?? 50;
-
-    this.flushInterval =
-      config.flushInterval ?? 5000;
-
-    const maxBufferSize =
-      config.maxBufferSize ?? 1000;
-
-    this.silent = config.silent ?? false;
-
+  constructor(config: RuntimeGuardConfig) {
     this.buffer = new EventBuffer(
-      maxBufferSize
+      config.bufferSize ?? 1000
     );
 
-    this.batcher = new Batcher(
-      this.buffer,
-      this.batchSize
+    this.batchSize = config.batchSize ?? 20;
+    this.flushInterval = config.flushInterval ?? 5000;
+
+    this.transport = new HttpTransport({
+      endpoint: config.endpoint,
+      apiKey: config.apiKey,
+    });
+
+    this.start();
+  }
+
+  
+  private start(): void {
+    this.stopConsoleHook = installConsoleHook(
+      (event) => {
+        this.capture(event);
+      }
     );
 
-    this.transport = new HttpTransport(
-      config.endpoint,
-      config.apiKey,
-      config.requestTimeout ?? 5000,
-      config.maxRetries ?? 3,
-      config.retryDelay ?? 500
-    );
-
-    this.startAutoFlush();
+    this.flushTimer = setInterval(() => {
+      void this.flush();
+    }, this.flushInterval);
   }
 
   middleware() {
-    return createHttpMiddleware(
-      this.buffer,
-      () => {
-        if (
-          this.buffer.size() >=
-          this.batchSize
-        ) {
-          void this.flush();
-        }
-      }
-    );
+  return httpMiddleware(this);
+}
+  capture(event: RuntimeEvent): void {
+    const sanitizedEvent = this.sanitize(event);
+
+    this.buffer.add(sanitizedEvent);
+
+    if (this.buffer.size() >= this.batchSize) {
+      void this.flush();
+    }
+  }
+
+  private sanitize(event: RuntimeEvent): RuntimeEvent {
+    if (event.type === "http") {
+      return {
+        ...event,
+        headers: sanitizeHeaders(event.headers),
+      };
+    }
+
+    return event;
   }
 
   async flush(): Promise<void> {
-    if (
-      this.flushing ||
-      this.shutdownStarted
-    ) {
-      return;
-    }
-
     if (this.buffer.size() === 0) {
       return;
     }
 
-    this.flushing = true;
+    const events = this.buffer.remove(this.batchSize);
+
+    if (events.length === 0) {
+      return;
+    }
 
     try {
-      const batch =
-        this.batcher.createBatch();
-
-      if (batch.length === 0) {
-        return;
-      }
-
-      try {
-        await this.transport.send(batch);
-      } catch (error) {
-        // Put events back at the front logically.
-        // We don't throw into the customer's application.
-        for (const event of batch.reverse()) {
-          this.buffer.prepend(event);
-        }
-
-        this.logError(
-          "Failed to send events",
-          error
-        );
-      }
-    } finally {
-      this.flushing = false;
+      await this.transport.send(events);
+    } catch (error) {
+      console.error(
+        "[RuntimeGuard] Failed to send events:",
+        error
+      );
     }
   }
 
   async shutdown(): Promise<void> {
-    if (this.shutdownStarted) {
-      return;
-    }
-
-    this.shutdownStarted = true;
-
     if (this.flushTimer) {
       clearInterval(this.flushTimer);
     }
 
-    if (this.buffer.size() > 0) {
-      const batch = this.buffer.getAll();
+    this.stopConsoleHook?.();
 
-      this.buffer.clear();
-
-      try {
-        await this.transport.send(batch);
-      } catch (error) {
-        this.logError(
-          "Failed to flush during shutdown",
-          error
-        );
-      }
-    }
-  }
-
-  getBufferSize(): number {
-    return this.buffer.size();
-  }
-
-  private startAutoFlush(): void {
-    this.flushTimer = setInterval(() => {
-      void this.flush();
-    }, this.flushInterval);
-
-    this.flushTimer.unref?.();
-  }
-
-  private logError(
-    message: string,
-    error: unknown
-  ): void {
-    if (this.silent) {
-      return;
-    }
-
-    console.error(
-      `[RuntimeGuard] ${message}:`,
-      error
-    );
+    await this.flush();
   }
 }
